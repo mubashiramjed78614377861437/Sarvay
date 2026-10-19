@@ -1,193 +1,314 @@
-package com.mubashir.roadsurvey
+package com.roadsurvey.manager.ui
 
 import android.app.Activity
-import android.content.ClipData
 import android.content.Intent
-import android.util.Base64
-import android.database.Cursor
 import android.net.Uri
 import android.os.Bundle
-import android.provider.OpenableColumns
-import android.webkit.JavascriptInterface
-import android.webkit.ValueCallback
-import android.webkit.WebChromeClient
-import android.webkit.WebView
-import android.webkit.WebViewClient
+import android.view.Menu
+import android.view.MenuItem
+import android.widget.EditText
 import android.widget.Toast
-import androidx.core.content.FileProvider
-import org.json.JSONArray
-import org.json.JSONObject
-import java.io.File
-import java.io.FileOutputStream
-import java.util.UUID
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.appcompat.app.AlertDialog
+import androidx.appcompat.app.AppCompatActivity
+import androidx.lifecycle.lifecycleScope
+import androidx.recyclerview.widget.LinearLayoutManager
+import com.google.android.material.bottomsheet.BottomSheetDialog
+import com.google.android.material.button.MaterialButton
+import com.roadsurvey.manager.R
+import com.roadsurvey.manager.RoadSurveyApp
+import com.roadsurvey.manager.data.Project
+import com.roadsurvey.manager.data.Repository
+import com.roadsurvey.manager.databinding.ActivityMainBinding
+import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.launch
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 
-class MainActivity : Activity() {
-    private lateinit var webView: WebView
-    private var chooserCallback: ValueCallback<Array<Uri>>? = null
-    private val pickerRequest = 4217
-    private val backupRequest = 4218
-    private var pendingBackupBytes: ByteArray? = null
-    private val prefs by lazy { getSharedPreferences("stored_imports", MODE_PRIVATE) }
-    private val importedDir by lazy { File(filesDir, "imported").apply { mkdirs() } }
+class MainActivity : AppCompatActivity() {
+
+    private lateinit var binding: ActivityMainBinding
+    private lateinit var repo: Repository
+    private lateinit var projectAdapter: ProjectAdapter
+    private lateinit var fileAdapter: FileAdapter
+    private lateinit var favProjectAdapter: ProjectAdapter
+
+    private var pendingUris: List<Uri> = emptyList()
+    private var projectsCache: List<Project> = emptyList()
+
+    private val openMultiple = registerForActivityResult(
+        ActivityResultContracts.OpenMultipleDocuments()
+    ) { uris ->
+        if (uris.isNullOrEmpty()) return@registerForActivityResult
+        pendingUris = uris
+        // Take persistable permission when possible
+        uris.forEach { uri ->
+            try {
+                contentResolver.takePersistableUriPermission(
+                    uri,
+                    Intent.FLAG_GRANT_READ_URI_PERMISSION
+                )
+            } catch (_: Exception) { /* some providers don't allow */ }
+        }
+        showImportDialogForNext()
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        webView = WebView(this)
-        setContentView(webView)
-        webView.settings.javaScriptEnabled = true
-        webView.settings.domStorageEnabled = true
-        webView.settings.allowFileAccess = true
-        webView.settings.allowContentAccess = true
-        webView.settings.databaseEnabled = true
-        webView.settings.javaScriptCanOpenWindowsAutomatically = false
-        webView.addJavascriptInterface(NativeFiles(), "AndroidFiles")
-        webView.webViewClient = object : WebViewClient() {}
-        webView.webChromeClient = object : WebChromeClient() {
-            override fun onShowFileChooser(
-                view: WebView?, callback: ValueCallback<Array<Uri>>?, params: FileChooserParams?
-            ): Boolean {
-                chooserCallback?.onReceiveValue(null)
-                chooserCallback = callback
-                val intent = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
-                    addCategory(Intent.CATEGORY_OPENABLE)
-                    type = "*/*"
-                    putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true)
-                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION)
-                }
-                return try { startActivityForResult(intent, pickerRequest); true }
-                catch (e: Exception) {
-                    chooserCallback?.onReceiveValue(null); chooserCallback = null
-                    Toast.makeText(this@MainActivity, "Phone file picker nahi khul saka: ${e.localizedMessage}", Toast.LENGTH_LONG).show()
-                    false
-                }
-            }
+        binding = ActivityMainBinding.inflate(layoutInflater)
+        setContentView(binding.root)
+        setSupportActionBar(binding.toolbar)
+
+        repo = (application as RoadSurveyApp).repository
+
+        projectAdapter = ProjectAdapter { openProject(it) }
+        fileAdapter = FileAdapter { openFile(it) }
+        favProjectAdapter = ProjectAdapter { openProject(it) }
+
+        binding.recyclerProjects.layoutManager = LinearLayoutManager(this)
+        binding.recyclerProjects.adapter = projectAdapter
+        binding.recyclerFiles.layoutManager = LinearLayoutManager(this)
+        binding.recyclerFiles.adapter = fileAdapter
+        binding.recyclerFavorites.layoutManager = LinearLayoutManager(this)
+        binding.recyclerFavorites.adapter = favProjectAdapter
+
+        binding.searchCard.setOnClickListener {
+            startActivity(Intent(this, SearchActivity::class.java))
         }
-        webView.loadUrl("file:///android_asset/index.html")
+        binding.searchHint.setOnClickListener {
+            startActivity(Intent(this, SearchActivity::class.java))
+        }
+
+        binding.btnAddProject.setOnClickListener { showAddProjectDialog() }
+        binding.btnImport.setOnClickListener { launchFilePicker() }
+        binding.btnCalculator.setOnClickListener {
+            startActivity(Intent(this, CalculatorActivity::class.java))
+        }
+        binding.btnBackup.setOnClickListener {
+            startActivity(Intent(this, BackupRestoreActivity::class.java))
+        }
+
+        binding.chipPdf.setOnClickListener { openCategory("PDF") }
+        binding.chipImages.setOnClickListener { openCategory("IMAGE") }
+        binding.chipDwg.setOnClickListener { openCategory("DWG") }
+        binding.chipDocs.setOnClickListener { openCategory("DOCUMENT") }
+        binding.chipOther.setOnClickListener { openCategory("OTHER") }
+
+        binding.fabQuickAdd.setOnClickListener { showQuickAddSheet() }
+
+        observeData()
     }
 
-    @Deprecated("Deprecated Android callback retained for broad device compatibility")
-    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
-        super.onActivityResult(requestCode, resultCode, data)
-        if (requestCode == backupRequest) {
-            val bytes = pendingBackupBytes
-            pendingBackupBytes = null
-            if (resultCode == RESULT_OK && data?.data != null && bytes != null) {
-                try {
-                    contentResolver.openOutputStream(data.data!!, "w").use { out ->
-                        requireNotNull(out) { "Backup destination cannot be opened" }
-                        out.write(bytes); out.flush()
-                    }
-                    Toast.makeText(this, "Backup phone storage mein save ho gayi.", Toast.LENGTH_LONG).show()
-                } catch (e: Exception) {
-                    Toast.makeText(this, "Backup save fail hui: ${e.localizedMessage}", Toast.LENGTH_LONG).show()
-                }
+    private fun observeData() {
+        lifecycleScope.launch {
+            repo.recentProjects(10).collectLatest {
+                projectsCache = it
+                projectAdapter.submitList(it)
             }
+        }
+        lifecycleScope.launch {
+            repo.recentFiles(15).collectLatest { fileAdapter.submitList(it) }
+        }
+        lifecycleScope.launch {
+            repo.favoriteProjects().collectLatest { favProjectAdapter.submitList(it) }
+        }
+    }
+
+    private fun launchFilePicker() {
+        // SAF — user can pick from Downloads, Documents, Pictures, etc.
+        openMultiple.launch(arrayOf(
+            "application/pdf",
+            "image/*",
+            "application/acad",
+            "image/vnd.dxf",
+            "application/msword",
+            "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            "application/vnd.ms-excel",
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            "text/plain",
+            "application/zip",
+            "*/*"
+        ))
+    }
+
+    private fun showImportDialogForNext() {
+        if (pendingUris.isEmpty()) {
+            Toast.makeText(this, "Import finished", Toast.LENGTH_SHORT).show()
             return
         }
-        if (requestCode != pickerRequest) return
-        val callback = chooserCallback ?: return
-        if (resultCode != RESULT_OK || data == null) {
-            callback.onReceiveValue(null); chooserCallback = null
-            return
-        }
-        val uris = mutableListOf<Uri>()
-        data.clipData?.let { clip -> for (i in 0 until clip.itemCount) uris.add(clip.getItemAt(i).uri) }
-        if (uris.isEmpty()) data.data?.let { uris.add(it) }
-        val nativeMap = JSONArray()
-        val failures = JSONArray()
-        uris.forEach { uri ->
-            try {
-                try { contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION) } catch (_: Exception) { }
-                val info = copyUriIntoApp(uri)
-                nativeMap.put(JSONObject().put("name", info.first).put("size", info.second).put("id", info.third).put("mime", info.fourth))
-            } catch (e: Exception) {
-                failures.put(JSONObject().put("uri", uri.toString()).put("error", e.localizedMessage ?: "Copy failed"))
+        val uri = pendingUris.first()
+        pendingUris = pendingUris.drop(1)
+
+        val view = layoutInflater.inflate(R.layout.dialog_import_file, null)
+        val edtCustom = view.findViewById<EditText>(R.id.edtCustomName)
+        val edtCategory = view.findViewById<EditText>(R.id.edtCategory)
+        val edtProject = view.findViewById<EditText>(R.id.edtProject)
+        val edtDesc = view.findViewById<EditText>(R.id.edtDescription)
+        val edtTags = view.findViewById<EditText>(R.id.edtTags)
+        val txtOrig = view.findViewById<android.widget.TextView>(R.id.txtOriginalName)
+
+        val nameGuess = uri.lastPathSegment?.substringAfterLast('/') ?: "file"
+        txtOrig.text = "Original: $nameGuess"
+        edtCustom.setText(nameGuess)
+        val cat = repo.categoryFromMime(contentResolver.getType(uri) ?: "", nameGuess)
+        edtCategory.setText(cat)
+
+        var selectedProjectId: Long? = null
+        edtProject.setOnClickListener {
+            val names = projectsCache.map { it.name }.toTypedArray()
+            if (names.isEmpty()) {
+                Toast.makeText(this, "Create a project first (optional)", Toast.LENGTH_SHORT).show()
+                return@setOnClickListener
             }
+            AlertDialog.Builder(this)
+                .setTitle("Assign to project")
+                .setItems(names) { _, which ->
+                    selectedProjectId = projectsCache[which].id
+                    edtProject.setText(names[which])
+                }
+                .show()
         }
-        // WebView's File input still receives the selected content URIs, while native copies provide durable local files.
-        webView.evaluateJavascript("window.__nativeImportMap = ${nativeMap}; window.__nativeImportErrors = ${failures};", null)
-        callback.onReceiveValue(uris.toTypedArray())
-        chooserCallback = null
-        if (failures.length() > 0) Toast.makeText(this, "Kuch files ki local copy nahi ban saki. Storage space aur file permission check karein.", Toast.LENGTH_LONG).show()
-    }
 
-    private fun queryName(uri: Uri): String {
-        var name = "imported_file"
-        val cursor: Cursor? = contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)
-        cursor?.use { if (it.moveToFirst()) name = it.getString(0) ?: name }
-        if (name.isBlank()) name = "imported_file"
-        return name.replace('/', '_').replace('\\', '_').filter { it >= ' ' }
-    }
-
-    private fun copyUriIntoApp(uri: Uri): Quad {
-        val name = queryName(uri)
-        val id = UUID.randomUUID().toString()
-        val dest = File(importedDir, id + "_" + name)
-        val input = contentResolver.openInputStream(uri) ?: throw IllegalStateException("Android could not read this file")
-        input.use { stream ->
-            FileOutputStream(dest).use { output -> stream.copyTo(output, 1024 * 128); output.fd.sync() }
+        val cats = arrayOf("PDF", "IMAGE", "DWG", "DOCUMENT", "OTHER")
+        edtCategory.setOnClickListener {
+            AlertDialog.Builder(this)
+                .setTitle("Category")
+                .setItems(cats) { _, which -> edtCategory.setText(cats[which]) }
+                .show()
         }
-        val mime = contentResolver.getType(uri) ?: mimeFor(name)
-        prefs.edit().putString("path:$id", dest.absolutePath).putString("name:$id", name).putString("mime:$id", mime).apply()
-        return Quad(name, dest.length(), id, mime)
-    }
-    private data class Quad(val first: String, val second: Long, val third: String, val fourth: String)
 
-    private fun mimeFor(name: String): String = when (name.substringAfterLast('.', "").lowercase()) {
-        "pdf" -> "application/pdf"; "jpg", "jpeg" -> "image/jpeg"; "png" -> "image/png"; "gif" -> "image/gif"; "webp" -> "image/webp"
-        "doc" -> "application/msword"; "docx" -> "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-        "xls" -> "application/vnd.ms-excel"; "xlsx" -> "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-        "dwg" -> "application/acad"; "dxf" -> "application/dxf"; "txt" -> "text/plain"; "zip" -> "application/zip"
-        else -> "application/octet-stream"
-    }
-
-    inner class NativeFiles {
-        @JavascriptInterface fun openImportedFile(id: String): String = openOrShare(id, false)
-        @JavascriptInterface fun shareImportedFile(id: String): String = openOrShare(id, true)
-        @JavascriptInterface fun hasNativeFile(id: String): Boolean = !storedFile(id).isNullOrEmpty()
-        @JavascriptInterface fun saveBackupBase64(base64: String, filename: String) {
-            try {
-                pendingBackupBytes = Base64.decode(base64, Base64.DEFAULT)
-                runOnUiThread {
-                    val intent = Intent(Intent.ACTION_CREATE_DOCUMENT).apply {
-                        addCategory(Intent.CATEGORY_OPENABLE)
-                        type = "application/json"
-                        putExtra(Intent.EXTRA_TITLE, filename.replace('/', '_').replace('\\', '_'))
+        AlertDialog.Builder(this)
+            .setTitle("Import file")
+            .setView(view)
+            .setPositiveButton("Import") { _, _ ->
+                lifecycleScope.launch {
+                    try {
+                        repo.importUri(
+                            uri = uri,
+                            customName = edtCustom.text.toString().trim(),
+                            projectId = selectedProjectId,
+                            category = edtCategory.text.toString().ifBlank { cat },
+                            description = edtDesc.text.toString(),
+                            tags = edtTags.text.toString()
+                        )
+                        Toast.makeText(this@MainActivity, "Imported (copied to app storage when possible)", Toast.LENGTH_SHORT).show()
+                    } catch (e: Exception) {
+                        Toast.makeText(this@MainActivity, "Import failed: ${e.message}", Toast.LENGTH_LONG).show()
                     }
-                    try { startActivityForResult(intent, backupRequest) }
-                    catch (e: Exception) {
-                        pendingBackupBytes = null
-                        Toast.makeText(this@MainActivity, "Backup save picker nahi khula: ${e.localizedMessage}", Toast.LENGTH_LONG).show()
+                    showImportDialogForNext()
+                }
+            }
+            .setNegativeButton("Skip") { _, _ -> showImportDialogForNext() }
+            .setNeutralButton("Cancel all") { _, _ -> pendingUris = emptyList() }
+            .setCancelable(false)
+            .show()
+    }
+
+    private fun showAddProjectDialog(existing: Project? = null) {
+        val view = layoutInflater.inflate(R.layout.dialog_add_project, null)
+        val edtName = view.findViewById<EditText>(R.id.edtName)
+        val edtRoad = view.findViewById<EditText>(R.id.edtRoadName)
+        val edtCode = view.findViewById<EditText>(R.id.edtRoadCode)
+        val edtLoc = view.findViewById<EditText>(R.id.edtLocation)
+        val edtDate = view.findViewById<EditText>(R.id.edtDate)
+        val edtClient = view.findViewById<EditText>(R.id.edtClient)
+        val edtContractor = view.findViewById<EditText>(R.id.edtContractor)
+        val edtDesc = view.findViewById<EditText>(R.id.edtDescription)
+        val edtTags = view.findViewById<EditText>(R.id.edtTags)
+
+        if (existing != null) {
+            edtName.setText(existing.name)
+            edtRoad.setText(existing.roadName)
+            edtCode.setText(existing.roadCode)
+            edtLoc.setText(existing.location)
+            edtDate.setText(existing.date)
+            edtClient.setText(existing.client)
+            edtContractor.setText(existing.contractor)
+            edtDesc.setText(existing.description)
+            edtTags.setText(existing.tags)
+        } else {
+            edtDate.setText(SimpleDateFormat("dd-MM-yyyy", Locale.getDefault()).format(Date()))
+        }
+
+        AlertDialog.Builder(this)
+            .setTitle(if (existing == null) "New Project" else "Edit Project")
+            .setView(view)
+            .setPositiveButton(R.string.save) { _, _ ->
+                val name = edtName.text.toString().trim()
+                if (name.isEmpty()) {
+                    Toast.makeText(this, "Name required", Toast.LENGTH_SHORT).show()
+                    return@setPositiveButton
+                }
+                lifecycleScope.launch {
+                    val p = (existing ?: Project(name = name)).copy(
+                        name = name,
+                        roadName = edtRoad.text.toString().trim(),
+                        roadCode = edtCode.text.toString().trim(),
+                        location = edtLoc.text.toString().trim(),
+                        date = edtDate.text.toString().trim(),
+                        client = edtClient.text.toString().trim(),
+                        contractor = edtContractor.text.toString().trim(),
+                        description = edtDesc.text.toString().trim(),
+                        tags = edtTags.text.toString().trim(),
+                        updatedAt = System.currentTimeMillis()
+                    )
+                    val id = repo.saveProject(p)
+                    Toast.makeText(this@MainActivity, "Saved", Toast.LENGTH_SHORT).show()
+                    if (existing == null) {
+                        openProject(p.copy(id = id))
                     }
                 }
-            } catch (e: Exception) {
-                Toast.makeText(this@MainActivity, "Backup data prepare nahi ho saka: ${e.localizedMessage}", Toast.LENGTH_LONG).show()
             }
-        }
-
-        private fun openOrShare(id: String, share: Boolean): String {
-            return try {
-                val path = storedFile(id) ?: return "MISSING"
-                val file = File(path)
-                if (!file.exists()) return "MISSING"
-                val uri = FileProvider.getUriForFile(this@MainActivity, "$packageName.fileprovider", file)
-                val mime = prefs.getString("mime:$id", "application/octet-stream") ?: "application/octet-stream"
-                val intent = if (share) Intent(Intent.ACTION_SEND) else Intent(Intent.ACTION_VIEW)
-                if (share) intent.type = mime else { intent.setDataAndType(uri, mime) }
-                if (share) intent.putExtra(Intent.EXTRA_STREAM, uri) else intent.data = uri
-                intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                intent.clipData = ClipData.newUri(contentResolver, file.name, uri)
-                val chooser = Intent.createChooser(intent, if (share) "Share with" else "Open with")
-                chooser.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                runOnUiThread { startActivity(chooser) }
-                "OK"
-            } catch (e: Exception) {
-                runOnUiThread { Toast.makeText(this@MainActivity, "Compatible app nahi mili ya file open nahi hui: ${e.localizedMessage}", Toast.LENGTH_LONG).show() }
-                "ERROR"
-            }
-        }
+            .setNegativeButton(R.string.cancel, null)
+            .show()
     }
-    private fun storedFile(id: String): String? = prefs.getString("path:$id", null)
 
-    override fun onBackPressed() { if (::webView.isInitialized && webView.canGoBack()) webView.goBack() else super.onBackPressed() }
+    private fun showQuickAddSheet() {
+        val dialog = BottomSheetDialog(this)
+        val sheet = layoutInflater.inflate(android.R.layout.simple_list_item_1, null)
+        // Simple options via AlertDialog for reliability
+        dialog.dismiss()
+        AlertDialog.Builder(this)
+            .setTitle("Quick Add")
+            .setItems(arrayOf("Add Project", "Import File(s)", "Add Photo", "Open Calculator")) { _, which ->
+                when (which) {
+                    0 -> showAddProjectDialog()
+                    1 -> launchFilePicker()
+                    2 -> launchFilePicker() // image filter still works via */*
+                    3 -> startActivity(Intent(this, CalculatorActivity::class.java))
+                }
+            }
+            .show()
+    }
+
+    private fun openProject(p: Project) {
+        startActivity(Intent(this, ProjectDetailActivity::class.java).putExtra("projectId", p.id))
+    }
+
+    private fun openFile(f: com.roadsurvey.manager.data.SurveyFile) {
+        startActivity(Intent(this, FileDetailActivity::class.java).putExtra("fileId", f.id))
+    }
+
+    private fun openCategory(cat: String) {
+        startActivity(
+            Intent(this, SearchActivity::class.java)
+                .putExtra("filterCategory", cat)
+        )
+    }
+
+    override fun onCreateOptionsMenu(menu: Menu): Boolean {
+        menu.add(0, 1, 0, "Search").setIcon(android.R.drawable.ic_menu_search)
+            .setShowAsAction(MenuItem.SHOW_AS_ACTION_ALWAYS)
+        menu.add(0, 2, 0, "Backup & Restore")
+        return true
+    }
+
+    override fun onOptionsItemSelected(item: MenuItem): Boolean {
+        when (item.itemId) {
+            1 -> startActivity(Intent(this, SearchActivity::class.java))
+            2 -> startActivity(Intent(this, BackupRestoreActivity::class.java))
+        }
+        return super.onOptionsItemSelected(item)
+    }
 }

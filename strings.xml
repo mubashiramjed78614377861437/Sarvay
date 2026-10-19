@@ -1,3 +1,38 @@
+<?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">Road Survey Manager</string>
+    <string name="search_hint">Search projects, files, tags, roads…</string>
+    <string name="add_project">Add Project</string>
+    <string name="import_files">Import from Phone Storage</string>
+    <string name="recent_projects">Recent Projects</string>
+    <string name="recent_files">Recent Files</string>
+    <string name="favorites">Favorites</string>
+    <string name="quick_calculator">Calculator</string>
+    <string name="pdf">PDFs</string>
+    <string name="images">Images / Screenshots</string>
+    <string name="dwg_cad">DWG / CAD</string>
+    <string name="documents">Documents</string>
+    <string name="other_files">Other Files</string>
+    <string name="overview">Overview</string>
+    <string name="files">Files</string>
+    <string name="photos">Photos</string>
+    <string name="notes">Notes</string>
+    <string name="backup_restore">Backup &amp; Restore</string>
+    <string name="storage_warning">Files stored inside the app are deleted if you uninstall the app or clear its data. Use Backup &amp; Restore to keep a copy on your phone.</string>
+    <string name="offline_only">This app works fully offline. No cloud, no login, no internet required.</string>
+    <string name="demo_label">[DEMO]</string>
+    <string name="confirm_delete">Delete?</string>
+    <string name="confirm_delete_message">This cannot be undone unless the item is in Recently Deleted.</string>
+    <string name="cancel">Cancel</string>
+    <string name="delete">Delete</string>
+    <string name="save">Save</string>
+    <string name="share">Share</string>
+    <string name="open_with">Open with…</string>
+    <string name="favorite">Favorite</string>
+    <string name="rename">Rename</string>
+    <string name="edit">Edit</string>
+    <string name="move">Move to project</string>
+    <string name="no_results">No results</string>
+    <string name="empty_projects">No projects yet. Tap + to create one.</string>
+    <string name="empty_files">No files yet. Import from phone storage.</string>
 </resources>

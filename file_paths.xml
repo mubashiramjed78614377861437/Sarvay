@@ -1,4 +1,6 @@
-<paths xmlns:android="http://schemas.android.com/apk/res/android">
-    <files-path name="imported_files" path="imported/" />
-    <cache-path name="shared_temp" path="shared/" />
+<?xml version="1.0" encoding="utf-8"?>
+<paths>
+    <files-path name="app_files" path="." />
+    <cache-path name="cache" path="." />
+    <external-files-path name="external_files" path="." />
 </paths>

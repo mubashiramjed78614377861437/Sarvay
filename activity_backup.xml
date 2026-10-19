@@ -1,0 +1,65 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:padding="16dp">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical">
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Local backup only — nothing is uploaded to the internet."
+            android:textColor="@color/success"
+            android:textSize="13sp"
+            android:layout_marginBottom="12dp" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="@string/storage_warning"
+            android:textSize="12sp"
+            android:textColor="@color/text_secondary"
+            android:layout_marginBottom="20dp" />
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btnExportMeta"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Export metadata (JSON)" />
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btnExportZip"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Export full backup (ZIP)"
+            android:layout_marginTop="8dp" />
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btnShareBackup"
+            style="@style/Widget.RoadSurvey.Button.Outlined"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Share last backup"
+            android:layout_marginTop="8dp" />
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btnRestoreInfo"
+            style="@style/Widget.RoadSurvey.Button.Outlined"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Restore instructions"
+            android:layout_marginTop="8dp" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Backups are written to the app’s external files folder and can be shared via the Android share sheet to Files, Drive (manual), email, etc. The app itself never uploads data."
+            android:textSize="12sp"
+            android:textColor="@color/text_secondary"
+            android:layout_marginTop="24dp" />
+    </LinearLayout>
+</ScrollView>

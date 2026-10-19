@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="primary">#1565C0</color>
+    <color name="primary_dark">#0D47A1</color>
+    <color name="primary_light">#42A5F5</color>
+    <color name="accent">#FF6F00</color>
+    <color name="accent_light">#FFB74D</color>
+    <color name="background">#F5F7FA</color>
+    <color name="surface">#FFFFFF</color>
+    <color name="text_primary">#212121</color>
+    <color name="text_secondary">#757575</color>
+    <color name="divider">#E0E0E0</color>
+    <color name="favorite">#E53935</color>
+    <color name="success">#2E7D32</color>
+    <color name="warning">#F9A825</color>
+    <color name="error">#C62828</color>
+    <color name="pdf_color">#D32F2F</color>
+    <color name="image_color">#7B1FA2</color>
+    <color name="cad_color">#00838F</color>
+    <color name="doc_color">#1565C0</color>
+    <color name="other_color">#546E7A</color>
+    <color name="demo_bg">#FFF8E1</color>
+    <color name="black">#000000</color>
+    <color name="white">#FFFFFF</color>
+</resources>
